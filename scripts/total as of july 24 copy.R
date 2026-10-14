@@ -10,7 +10,7 @@ library(splines)
 # getwd()
 # setwd("/Users/meredithlee/Desktop")
 
-myd <- read.csv("data_total1014.txt", stringsAsFactors=T)
+myd <- read_csv('data/cleaned/ei_90_pp_cleaned.csv')
 summary(myd)
 
 # Exclude 5ee5e3b02eebe932ee9559c5 (did not finish task), 67ff6b52bd05ef852331bbdf (only has one trial for 0.75 and 0.5 Power)
@@ -19,17 +19,18 @@ summary(myd)
 #summary(myd)
 
 # filter data
-myd = subset(myd, frameRate>5)
-myd = subset(myd, EI_IRT<20)
+myd = subset(myd, frame_rate>5)
+myd = subset(myd, ei_irt<20)
 summary(myd)
 
 # add computed variables
-ages = myd %>% group_by(ID) %>% summarize(m.age = mean(Age)) 
+ages = myd %>% group_by(pid) %>% summarize(m.age = mean(age)) 
 mean.age = mean(ages$m.age)
-myd$c.power = myd$EI_Power - 1
-myd$c.age = myd$Age - mean.age 
-myd$Waiting = ifelse(myd$EI_IRT>5,1,0)
-contrasts(myd$Sex) = contr.sum(2)
+myd$c.power = myd$ei_power - 1
+myd$c.age = myd$age - mean.age 
+myd$waiting = ifelse(myd$ei_irt>5,1,0)
+myd$sex = factor(myd$sex)
+contrasts(myd$sex) = contr.sum(2)
 
 summary(myd)
 
@@ -75,23 +76,24 @@ print(table_markdown)
 # analyze data
 
 ### investigate how the probability of waiting is influenced by c.power, while accounting for individual differences and how individuals respond to changes in c.power.
-myr <- glmer(Waiting ~ c.power + (c.power | ID), family=binomial, data=myd)
+myr <- glmer(waiting ~ c.power + (c.power | pid), family=binomial, data=myd)
 summary(myr)
 
-p = emmeans(myr, ~c.power, at=list(c.power=c(.5, .75, 1, 1.25, 1.5) - 1)) # in log odds space
-p = emmeans(myr, ~c.power, at=list(c.power=c(.5, .75, 1, 1.25, 1.5) - 1), type="response") # in percentage space
+emmeans(myr, ~c.power, at=list(c.power=c(.5, .75, 1, 1.25, 1.5) - 1)) # in log odds space
+emmeans(myr, ~c.power, at=list(c.power=c(.5, .75, 1, 1.25, 1.5) - 1), type="response") # in percentage space
 
-p %>% 
-  as_tibble() %>% 
-  ggplot(aes(x = c.power, y = prob))+ 
-  geom_line()
+# p %>% 
+#   as_tibble() %>% 
+#   ggplot(aes(x = c.power, y = prob))+ 
+#   geom_line()
 
 
-myr2 <- glmer(Waiting ~ c.power*c.age + (c.power | ID), family=binomial, data=myd)
+myr2 <- glmer(waiting ~ c.power*c.age + (c.power | pid), family=binomial, data=myd)
 summary(myr2)
 
-saveRDS(myr2, 'myr.rds')
-myr2 <- readRDS('myr.rds')
+# or save and pull the model from the model fit binary 
+saveRDS(myr2, 'fits/myr.rds')
+myr2 <- readRDS('fits/myr.rds')
 
 emmeans(myr2, ~c.age, at=list(c.age=c(18, 28, 38, 48, 58, 65)- mean.age), type="response")
 
@@ -202,17 +204,17 @@ myd$fitted = fitted(myr2)
 
 # Individual differences
 #Original
- ggplot(myd, aes(x=EI_Power, y = fitted, group=ID, color=ID)) + 
+ ggplot(myd, aes(x=ei_power, y = fitted, group=pid, color=pid)) + 
    geom_line() +
    ylab("P(Waited)") + ylim(0,1) + 
-   facet_grid(~cut(Age,5)) + 
+   facet_grid(~cut(age,5)) + 
    theme_bw() + 
    theme(legend.position="none") 
 
 
 plot_data_with_age_groups <- myd %>%
   mutate(
-    age_group_label = cut(Age,
+    age_group_label = cut(age,
                           breaks = custom_breaks_fixed,
                           labels = custom_labels_fixed,
                           include.lowest = TRUE,
@@ -220,7 +222,7 @@ plot_data_with_age_groups <- myd %>%
     age_group_label = factor(age_group_label, levels = custom_labels_fixed)
   )
 
-ggplot(plot_data_with_age_groups, aes(x=EI_Power, y = fitted, group=ID, color=ID)) +
+ggplot(plot_data_with_age_groups, aes(x=ei_power, y = fitted, group=pid, color=pid)) +
   geom_line() +
   ylab("P(Waited)") +
   ylim(0,1) +
@@ -229,46 +231,34 @@ ggplot(plot_data_with_age_groups, aes(x=EI_Power, y = fitted, group=ID, color=ID
   theme(legend.position="none") +
   ggtitle("Individual Differences in Waiting Behavior by Age Group")
 
-end_start = read.csv('EI_Task.started.txt')
-end_stopped = read.csv('EI_Task.stopped.txt')
 
-end_start = end_start %>% 
-  group_by(ID) %>% 
-  summarize(
-    start_time = min(EI_Task.started)
-  )
+# performance by strategy comparison
+sensitivity = coef(myr2)$pid$c.power
 
-end_stopped = end_stopped %>% 
-  group_by(ID) %>% 
-  summarize(
-    end_time = max(EI_Task.stopped)
-  )
-
-end_study_data = end_start %>% 
-  left_join(end_stopped, join_by(ID))
-
-# join together 
-myd <- myd %>% 
-  left_join(end_study_data, join_by(ID))
-
-ggplot(myd, aes(x=EI_Power, y = fitted, group = ID, color=log(end_study.started))) + 
-  geom_line() +
-  ylab("P(Waited)") + ylim(0,1) + 
-  scale_color_viridis_c(option = 'magma', end = .9) +
-  facet_grid(~cut(Age,5)) + 
-  theme_bw()
-
-totalTime = myd %>% group_by(ID,Age) %>% summarize(sumTime=sum(EI_IRT),nFishCaught=max(EI_RewardObject),
-                                                   FishCaughtPerMinute=nFishCaught/sumTime*60) 
-sensitivity = coef(myr2)$ID$c.power
-
-hist(totalTime$FishCaughtPerMinute)
+hist(myd$completion_time)
 hist(sensitivity)
 
+# put it together into a table
+ct_analysis <- myd |> 
+  group_by(pid) |> 
+  summarize(
+    completion_time = unique(completion_time), 
+    age = unique(age)
+  ) |> 
+  add_column(sensitivity = sensitivity)
 
 # Points per object isn't performing well because each object *should* 
 # require the same number of points to destroy.  That's why the range of values
 # is so small.  Variation is likely due to how long they waited after the bar was full.
+
+# plot
+ct_analysis |> 
+  ggplot(aes(x = age, y = completion_time)) + 
+  geom_point()
+
+perf_model <- lm(completion_time ~ sensitivity, data = ct_analysis)
+
+summary(perf_model)
 
 # now to combine the results with age...  Does age predict 'optimality'?
 jill <- lm(FishCaughtPerMinute~Age, data=totalTime)

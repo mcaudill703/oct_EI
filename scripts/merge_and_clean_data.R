@@ -12,7 +12,11 @@ folder_name <- 'data'
 
 files <- list.files(folder_name, full.names = TRUE)
 
+files <- files[which(!str_detect(files, '.gz'))]
+
 pids <- str_extract(files, "(?<=/).+(?=_EI)")
+
+files <- files[which(!is.na(pids))]
 
 # remove empty rows (tutorial level, net empty)
 
@@ -20,11 +24,8 @@ pids <- str_extract(files, "(?<=/).+(?=_EI)")
 
 # if cleans everything up, we'll merge the files together
 
-myd <- read_csv(files[1], show_col_types = F)
-
-names(myd)
-
 # from there, figure out a way to clean up those participant ids that were acutally links
+
 
 # loading loop
 for (i in 1:length(files)) {
@@ -64,4 +65,4 @@ summary(d)
 
 dir.create('data/cleaned')
 
-write_csv(d, 'data/cleaned/ei_35_pp_cleaned.csv')
+write_csv(d, 'data/cleaned/ei_90_pp_cleaned.csv')
